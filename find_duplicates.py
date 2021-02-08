@@ -12,22 +12,28 @@ class hasher:
         return  self._hasher.hexdigest()
 
 
-def find_same_content(basefile, filelist):
+def find_same_content(basefile, filelist, bytecmp=False):
     #print("Comparing %s to %s" % (basefile, str(filelist)))
     matches = set()
     for f in filelist:
         same = True
-        bh = hasher()
-        ch = hasher()
+        # hashers are not needed if we're doing by by byte compares
+        if not bytecmp:
+            basefile_hasher = hasher()
+            file_hasher = hasher()
+        
         with open(f, 'rb') as fc, open(basefile, 'rb') as fb:
-            chunkfb = fb.read(BLOCKSIZE)
-            while chunkfb:
-                chunkfc = fc.read(BLOCKSIZE)
-                if not bh.hash_chunk(chunkfb) == ch.hash_chunk(chunkfc):
+            basefile_chunk = fb.read(BLOCKSIZE)
+            while basefile_chunk:
+                file_chunk = fc.read(BLOCKSIZE)
+                if bytecmp and not (basefile_chunk == file_chunk):
                     same = False
                     break
-                chunkfb = fb.read(BLOCKSIZE)
-                chunkfc = fc.read(BLOCKSIZE)
+                elif not bytecmp and not (basefile_hasher.hash_chunk(basefile_chunk) == file_hasher.hash_chunk(file_chunk)):
+                    same = False
+                    break
+                basefile_chunk = fb.read(BLOCKSIZE)
+                file_chunk = fc.read(BLOCKSIZE)
             if same:
                 matches.add(f)
     if matches:
@@ -35,13 +41,17 @@ def find_same_content(basefile, filelist):
         #print(matches)
     return matches
 
-
 def main():
     parser = OptionParser(description="A tool to find duplicate files that have the same content") 
 
     parser.add_option("-p", "--path", 
                     dest = "basepath", 
                     help = "Path to start the search from") 
+    parser.add_option("-b", "--compareBytes",
+                    dest="byteCompare", 
+                    action="store_true",
+                    default=False,
+                    help="Preform byte by byte comparison instead of md5 hash comparison. used to avoid hash collisions")
     (options, args) = parser.parse_args()
 
     if not options.basepath:
@@ -50,7 +60,8 @@ def main():
     if not os.path.isdir(options.basepath):
         print("--path does not exist or is not a directory.")
         sys.exit(1)
-
+    if options.byteCompare:
+        print("--byte-compare is set wil perform byte by byte comparisons")
     files_found={}
     result={}
     for rt, dr, fl in os.walk(options.basepath):
@@ -58,7 +69,7 @@ def main():
             fpath = os.path.join(rt,f)
             fsize = os.stat(fpath).st_size
             if fsize in files_found:
-                matches = find_same_content(fpath, files_found[fsize])
+                matches = find_same_content(fpath, files_found[fsize], options.byteCompare)
                 files_found[fsize].append(fpath)
                 if fsize in result:
                     result[fsize].update(matches)
